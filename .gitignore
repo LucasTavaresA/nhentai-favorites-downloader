@@ -1,0 +1,8 @@
+venv/
+.venv/
+geckodriver.log
+*.pyc
+*.pyo
+__pycache__
+build/
+*.egg-info
