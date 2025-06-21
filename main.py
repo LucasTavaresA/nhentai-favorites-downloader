@@ -36,13 +36,17 @@ def get_available_driver():
     from selenium.common.exceptions import WebDriverException
 
     try:
-        driver = webdriver.Chrome()
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless=new")
+        driver = webdriver.Chrome(options=options)
         return driver
     except WebDriverException:
         pass
 
     try:
-        driver = webdriver.Firefox()
+        options = webdriver.FirefoxOptions()
+        options.add_argument("--headless")
+        driver = webdriver.Firefox(options=options)
         return driver
     except WebDriverException:
         pass
@@ -54,7 +58,9 @@ def get_available_driver():
         pass
 
     try:
-        driver = webdriver.Edge()
+        options = webdriver.EdgeOptions()
+        options.add_argument("--headless=new")
+        driver = webdriver.Edge(options=options)
         return driver
     except WebDriverException:
         pass
