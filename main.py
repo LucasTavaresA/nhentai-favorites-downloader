@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
+import time
+import os
 import asyncio
 import aiohttp
 import aiofiles
 from selenium import webdriver
+from lxml import html
 
 # should be 256 but that isn't working
 max_filename_length = 200
@@ -77,18 +80,42 @@ def get_available_driver():
     exit(1)
 
 
-async def download(session, url, save_path):
-    try:
-        async with aiofiles.open(save_path, 'xb') as f:
-            async with session.get(url) as resp:
-                content = await resp.read()
-                await f.write(content)
-    except FileExistsError:
-        pass
+class RateLimitException(Exception):
+    """Reached a rate limit."""
+    pass
+
+async def download_page(session, page, download_dir):
+    async with session.get(f"https://nhentai.net/favorites/?page={page}") as response:
+        response = await response.text()
+        favorites = html.fromstring(response).xpath('//*[@class="gallery-favorite"]')
+
+        for favorite in favorites:
+            id = favorite.get("data-id")
+            title = favorite.xpath('.//*[@class="caption"]')[0].text
+            filepath = os.path.join(os.path.expanduser(download_dir), sanitize_filename(title[:max_filename_length:]) + ".torrent")
+
+            while True:
+                try:
+                    async with session.get(f"https://nhentai.net/g/{id}/download") as resp:
+                        content_type = resp.headers.get("Content-Type", "")
+
+                        if content_type == 'application/x-bittorrent':
+                            print(f"\r✅ Downloaded {title[:50:]}")
+                            content = await resp.read()
+
+                            async with aiofiles.open(filepath, 'xb') as f:
+                                await f.write(content)
+                            break
+                        else:
+                            raise RateLimitException()
+                except FileExistsError:
+                    break
+                except RateLimitException:
+                    print(f"\r⚠️ Reached cloudflare rate limit, waiting...")
+                    time.sleep(2)
 
 
 async def main():
-    import os
     import sys
     import getpass
     from selenium_recaptcha_solver import RecaptchaSolver
@@ -129,38 +156,20 @@ async def main():
     selenium_cookies = driver.get_cookies()
     cookies = {cookie['name']: cookie['value'] for cookie in selenium_cookies}
 
-    ids = []
-    titles = []
+    pages = 1
+    last_buttons = driver.find_elements(By.CLASS_NAME, "last")
 
-    while True:
-        favorites = driver.find_elements(By.CLASS_NAME, "gallery-favorite")
+    if last_buttons != []:
+        pages = int(last_buttons[0].get_attribute("href").split('=')[1])
 
-        for favorite in favorites:
-            ids.append(favorite.get_attribute("data-id"))
-            titles.append(favorite.find_element(By.CLASS_NAME, "caption").text)
-            sys.stdout.write(f"\rLoading favorites {len(ids)}")
-            sys.stdout.flush()
-
-        next_buttons = driver.find_elements(By.CLASS_NAME, "next")
-        if next_buttons == []:
-            break
-
-        next_buttons[0].click()
-    print()
-
-    favorites_amount = len(ids)
-    print(f"Downloading {favorites_amount} favorites...")
-
+    tasks = []
     async with aiohttp.ClientSession(cookies=cookies) as session:
-        tasks = []
-        for i in range(favorites_amount):
-            sys.stdout.write(f"\rDownloading favorite {i}")
-            sys.stdout.flush()
-            save_path = os.path.join(os.path.expanduser(download_dir), sanitize_filename(titles[i][:max_filename_length:]) + ".torrent")
-            task = asyncio.create_task(download(session, f"https://nhentai.net/g/{id}/download", save_path))
+        for page in range(1, pages + 1):
+            task = asyncio.create_task(download_page(session, page, download_dir))
             tasks.append(task)
         await asyncio.gather(*tasks)
-    print()
+
+    driver.quit()
 
 asyncio.run(main())
 # Licensed under the GPL3 or later versions of the GPL license.
