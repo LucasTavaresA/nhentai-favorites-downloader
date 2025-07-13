@@ -92,7 +92,9 @@ async def download_page(session, page, download_dir):
         for favorite in favorites:
             id = favorite.get("data-id")
             title = favorite.xpath('.//*[@class="caption"]')[0].text
-            filepath = os.path.join(os.path.expanduser(download_dir), sanitize_filename(title[:max_filename_length:]) + ".torrent")
+            folder = os.path.expanduser(download_dir)
+            os.makedirs(folder, exist_ok=True)
+            filepath = os.path.join(folder, sanitize_filename(title[:max_filename_length:]) + ".torrent")
 
             while True:
                 try:
